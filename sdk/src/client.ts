@@ -4,8 +4,8 @@ import { VERDICTS, type ApiErrorBody, type CheckRequestBody, type EmailCheckResu
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export type EmailCheckerOptions = {
-	/** Base URL of the deployed worker, e.g. `https://email-checker.example.workers.dev`. */
-	baseUrl: string;
+	/** Base URL of the worker. Defaults to `DEFAULT_BASE_URL`. */
+	baseUrl?: string;
 	/** Per-request timeout in milliseconds. Defaults to 10000. Set to 0 to disable. */
 	timeoutMs?: number;
 	/** Extra headers sent with every request (e.g. auth). */
@@ -18,12 +18,7 @@ export type RequestOptions = {
 	signal?: AbortSignal;
 };
 
-export type EmailChecker = {
-	/** Checks syntax, temporary-email providers, and whether the domain accepts mail. */
-	check(email: string, options?: RequestOptions): Promise<EmailCheckResult>;
-	health(options?: RequestOptions): Promise<HealthResponse>;
-};
-
+export const DEFAULT_BASE_URL = 'https://email-checker.graphland-dev.workers.dev';
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -41,34 +36,58 @@ function isEmailCheckResult(value: unknown): value is EmailCheckResult {
 	);
 }
 
+function isHealthResponse(value: unknown): value is HealthResponse {
+	return isRecord(value) && value.ok === true;
+}
+
 function isApiErrorBody(value: unknown): value is ApiErrorBody {
 	return isRecord(value) && typeof value.error === 'string';
 }
 
-export function createEmailChecker(options: EmailCheckerOptions): EmailChecker {
-	const baseUrl = options.baseUrl.replace(/\/+$/, '');
-	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-	const fetchImpl: FetchLike = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+export class EmailChecker {
+	readonly baseUrl: string;
+	readonly timeoutMs: number;
+	readonly #headers: Record<string, string>;
+	readonly #fetch: FetchLike;
 
-	async function request<T>(
-		path: string,
-		init: RequestInit,
-		guard: (value: unknown) => value is T,
-		{ signal }: RequestOptions = {},
-	): Promise<T> {
-		const signals = [signal, timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined].filter((s): s is AbortSignal => s !== undefined);
+	constructor(options: EmailCheckerOptions = {}) {
+		this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+		this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+		this.#headers = options.headers ?? {};
+		this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+	}
+
+	/** Checks syntax, temporary-email providers, and whether the domain accepts mail. */
+	check(email: string, options?: RequestOptions): Promise<EmailCheckResult> {
+		const payload: CheckRequestBody = { email };
+		return this.#request(
+			'/v1/check',
+			{ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
+			isEmailCheckResult,
+			options,
+		);
+	}
+
+	health(options?: RequestOptions): Promise<HealthResponse> {
+		return this.#request('/health', { method: 'GET' }, isHealthResponse, options);
+	}
+
+	async #request<T>(path: string, init: RequestInit, guard: (value: unknown) => value is T, { signal }: RequestOptions = {}): Promise<T> {
+		const signals = [signal, this.timeoutMs > 0 ? AbortSignal.timeout(this.timeoutMs) : undefined].filter(
+			(s): s is AbortSignal => s !== undefined,
+		);
 
 		let res: Response;
 		try {
-			res = await fetchImpl(`${baseUrl}${path}`, {
+			res = await this.#fetch(`${this.baseUrl}${path}`, {
 				...init,
-				headers: { accept: 'application/json', ...options.headers, ...init.headers },
+				headers: { accept: 'application/json', ...this.#headers, ...init.headers },
 				signal: signals.length > 0 ? AbortSignal.any(signals) : null,
 			});
 		} catch (err) {
 			if (signal?.aborted) throw new EmailCheckerError('aborted', 'Request was aborted.', { cause: err });
 			if (err instanceof DOMException && err.name === 'TimeoutError') {
-				throw new EmailCheckerError('timeout', `Request timed out after ${timeoutMs}ms.`, { cause: err });
+				throw new EmailCheckerError('timeout', `Request timed out after ${this.timeoutMs}ms.`, { cause: err });
 			}
 			throw new EmailCheckerError('network_error', `Request failed: ${(err as Error).message}`, { cause: err });
 		}
@@ -93,24 +112,4 @@ export function createEmailChecker(options: EmailCheckerOptions): EmailChecker {
 		}
 		return body;
 	}
-
-	return {
-		check(email, requestOptions) {
-			const payload: CheckRequestBody = { email };
-			return request(
-				'/v1/check',
-				{ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) },
-				isEmailCheckResult,
-				requestOptions,
-			);
-		},
-		health(requestOptions) {
-			return request(
-				'/health',
-				{ method: 'GET' },
-				(value): value is HealthResponse => isRecord(value) && value.ok === true,
-				requestOptions,
-			);
-		},
-	};
 }

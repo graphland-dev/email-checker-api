@@ -1,14 +1,14 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
-	createEmailChecker,
+	EmailChecker,
 	EmailCheckerError,
 	type DisposableResult,
 	type EmailCheckResult,
 	type InvalidResult,
 } from "../sdk/src";
 
-const client = createEmailChecker({
+const client = new EmailChecker({
 	baseUrl: "https://example.com/",
 	fetch: (input, init) => SELF.fetch(input, init),
 });
@@ -41,7 +41,7 @@ describe("SDK", () => {
 	});
 
 	it("throws http_error with the server message", async () => {
-		const bad = createEmailChecker({
+		const bad = new EmailChecker({
 			baseUrl: "https://example.com",
 			fetch: (input, init) => SELF.fetch(input.replace("/v1/check", "/missing"), init),
 		});
@@ -51,7 +51,7 @@ describe("SDK", () => {
 	});
 
 	it("throws invalid_response when the body breaks the contract", async () => {
-		const bad = createEmailChecker({
+		const bad = new EmailChecker({
 			baseUrl: "https://example.com",
 			fetch: async () => Response.json({ verdict: "maybe" }),
 		});
@@ -59,7 +59,7 @@ describe("SDK", () => {
 	});
 
 	it("throws network_error when fetch rejects", async () => {
-		const bad = createEmailChecker({
+		const bad = new EmailChecker({
 			baseUrl: "https://example.com",
 			fetch: async () => {
 				throw new TypeError("connection refused");
@@ -71,7 +71,7 @@ describe("SDK", () => {
 	it("throws aborted when the caller aborts", async () => {
 		const controller = new AbortController();
 		controller.abort();
-		const bad = createEmailChecker({
+		const bad = new EmailChecker({
 			baseUrl: "https://example.com",
 			fetch: async (_input, init) => {
 				init?.signal?.throwIfAborted();

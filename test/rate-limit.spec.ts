@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { createEmailChecker } from "../sdk/src";
+import { EmailChecker } from "../sdk/src";
 import { rateLimit } from "../src/rate-limit";
 
 describe("rateLimit", () => {
@@ -49,7 +49,7 @@ describe("HTTP rate limiting", () => {
 		expect(blocked.headers.get("ratelimit-remaining")).toBe("0");
 		expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
 
-		const client = createEmailChecker({
+		const client = new EmailChecker({
 			baseUrl: "https://example.com",
 			fetch: (input, init) => SELF.fetch(input, { ...init, headers: { ...init?.headers, ...headers } }),
 		});

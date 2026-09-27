@@ -1,5 +1,5 @@
-export { createEmailChecker } from "./client.js";
-export type { EmailChecker, EmailCheckerOptions, RequestOptions } from "./client.js";
+export { DEFAULT_BASE_URL, EmailChecker } from "./client.js";
+export type { EmailCheckerOptions, RequestOptions } from "./client.js";
 export { EmailCheckerError, isEmailCheckerError } from "./errors.js";
 export type { EmailCheckerErrorCode } from "./errors.js";
 export { VERDICTS } from "./types.js";
